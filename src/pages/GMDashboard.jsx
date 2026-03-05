@@ -66,9 +66,11 @@ export default function GMDashboard() {
   const [events, setEvents]       = useState([]);
   const [proposals, setProposals] = useState([]);
   const [votes, setVotes]         = useState([]);
+  const [guilds, setGuilds]       = useState([]);
   const [alerts, setAlerts]       = useState([]);
   const [loading, setLoading]     = useState(true);
   const [actionLog, setActionLog] = useState([]);
+  const [apiTestBusy, setApiTestBusy] = useState(false);
 
   useEffect(() => { init(); }, []);
 
@@ -87,18 +89,20 @@ export default function GMDashboard() {
   };
 
   const loadData = async () => {
-    const [agentList, charList, eventList, proposalList, voteList] = await Promise.all([
+    const [agentList, charList, eventList, proposalList, voteList, guildList] = await Promise.all([
       base44.entities.Character.filter({ type: "ai_agent" }, "-updated_date", 100),
       base44.entities.Character.filter({ type: "human" }, "-updated_date", 100),
       base44.entities.WorldEvent.list("-created_date", 50),
       base44.entities.GovernanceProposal.list("-created_date", 100),
       base44.entities.Vote.list("-created_date", 200),
+      base44.entities.Guild.filter({ status: "active" }, "-updated_date", 100),
     ]);
     setAgents(agentList);
     setCharacters(charList);
     setEvents(eventList);
     setProposals(proposalList);
     setVotes(voteList);
+    setGuilds(guildList);
     setAlerts(detectAnomalies({ proposals: proposalList, votes: voteList, agents: agentList }));
   };
 
@@ -141,6 +145,72 @@ export default function GMDashboard() {
     await gameService.gmOverride({ action: "clear_proposal_votes", target_id: proposal.id, reason: "GM dashboard clear votes" });
     log(`Cleared votes from "${proposal.title}"`);
     loadData();
+  };
+
+  const runSiegeStub = async () => {
+    setApiTestBusy(true);
+    try {
+      if ((guilds || []).length < 2) {
+        throw new Error("Need at least 2 active guilds for siege flow test");
+      }
+
+      const attacker = guilds.find(g => g.war_status === "peace") || guilds[0];
+      const target = guilds.find(g => g.id !== attacker.id);
+      if (!target) throw new Error("No target guild available");
+
+      if (attacker.war_status === "peace") {
+        const declareRes = await gameService.siegeAction({
+          action_type: "declare",
+          guild_id: attacker.id,
+          target_guild_id: target.id,
+          reason: "GM dashboard smoke test declare",
+        });
+        log(`siegeAction declare OK: ${declareRes?.result?.status || "war"}`);
+      } else {
+        log(`siegeAction declare skipped: ${attacker.name} already in ${attacker.war_status}`);
+      }
+
+      const startRes = await gameService.siegeAction({
+        action_type: "start_phase",
+        guild_id: attacker.id,
+        reason: "GM dashboard smoke test start phase",
+      });
+      log(`siegeAction start_phase OK: ${startRes?.result?.status || "siege"}`);
+
+      const dmgRes = await gameService.siegeAction({
+        action_type: "damage_objective",
+        guild_id: attacker.id,
+        objective_id: "gate",
+        amount: 20,
+        reason: "GM dashboard smoke test objective damage",
+      });
+      log(`siegeAction damage_objective OK: score ${dmgRes?.result?.war_score ?? "n/a"}`);
+      await loadData();
+    } catch (error) {
+      log(`siegeAction FAILED: ${String(error?.message || error)}`);
+    } finally {
+      setApiTestBusy(false);
+    }
+  };
+
+  const runCreatorHookStub = async () => {
+    setApiTestBusy(true);
+    try {
+      const res = await gameService.creatorEventHook({
+        event_type: "gm_dashboard_test",
+        entity_id: activeEvents[0]?.id || "gm-dashboard",
+        timestamp: new Date().toISOString(),
+        metadata: {
+          source: "gm_dashboard",
+          category: "smoke_test",
+        },
+      });
+      log(`creatorEventHook OK: marker ${res?.result?.marker_id || "n/a"} (${res?.result?.implemented ? "implemented" : "stub"})`);
+    } catch (error) {
+      log(`creatorEventHook FAILED: ${String(error?.message || error)}`);
+    } finally {
+      setApiTestBusy(false);
+    }
   };
 
   // â”€â”€ guards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -347,6 +417,31 @@ export default function GMDashboard() {
                     <Button variant="outline" size="sm" className="w-full border-gray-700 text-xs">{label}</Button>
                   </Link>
                 ))}
+              </div>
+            </section>
+
+            {/* API Smoke Tests */}
+            <section>
+              <h2 className="text-sm font-bold text-teal-400 uppercase tracking-wider mb-3">Authority API Smoke Tests</h2>
+              <div className="space-y-2">
+                <Button
+                  onClick={runSiegeStub}
+                  disabled={apiTestBusy}
+                  variant="outline"
+                  className="w-full border-gray-700 text-xs justify-start gap-2"
+                >
+                  <Swords className="w-4 h-4" />
+                  Test siegeAction flow
+                </Button>
+                <Button
+                  onClick={runCreatorHookStub}
+                  disabled={apiTestBusy}
+                  variant="outline"
+                  className="w-full border-gray-700 text-xs justify-start gap-2"
+                >
+                  <Eye className="w-4 h-4" />
+                  Test creatorEventHook stub
+                </Button>
               </div>
             </section>
           </div>

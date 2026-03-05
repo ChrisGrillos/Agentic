@@ -7,8 +7,9 @@ function withKey(payload = {}) {
   };
 }
 
-async function invoke(name, payload) {
-  const res = await base44.functions.invoke(name, withKey(payload));
+async function invoke(name, payload, idempotencyKey) {
+  const body = idempotencyKey ? withKey({ ...payload, idempotency_key: idempotencyKey }) : withKey(payload);
+  const res = await base44.functions.invoke(name, body);
   if (!res?.ok) {
     throw new Error(res?.error || `${name} failed`);
   }
@@ -22,6 +23,8 @@ export const gameService = {
   gmOverride: (payload) => invoke("gmOverride", payload),
   combatAction: (payload) => invoke("combatAction", payload),
   worldTick: (payload = {}) => invoke("worldTick", payload),
+  siegeAction: (payload, idempotencyKey) => invoke("siegeAction", payload, idempotencyKey),
+  creatorEventHook: (payload, idempotencyKey) => invoke("creatorEventHook", payload, idempotencyKey),
 };
 
 export default gameService;

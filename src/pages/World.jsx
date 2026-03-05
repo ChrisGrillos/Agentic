@@ -246,6 +246,9 @@ export default function World() {
     if (tileFx.healPerMove > 0) {
       updates.hp = Math.min(myCharacter.max_hp || 100, ((hpUpdate ?? myCharacter.hp) || 0) + tileFx.healPerMove);
     }
+    if (tileFx.lawEffect) {
+      updates.active_law_effect = tileFx.lawEffect;
+    }
     if (inventoryUpdates) updates.inventory = inventoryUpdates;
     if (hpUpdate !== null) updates.hp = hpUpdate;
 
@@ -473,6 +476,12 @@ export default function World() {
         monster={combatMonster}
         onClose={() => { setCombatMonster(null); clearActiveTarget(); clearTarget(); }}
         onVictory={async () => {
+          await gameService.creatorEventHook({
+            marker_type: "combat_victory",
+            title: `Victory vs ${combatMonster?.name || "enemy"}`,
+            summary: `${myCharacter?.name || "Player"} won a directional combat exchange.`,
+            context: { monster_id: combatMonster?.id, zone_x: myCharacter?.x, zone_y: myCharacter?.y },
+          }).catch(() => {});
           await loadWorld();
           const refreshed = await base44.entities.Character.get(myCharacter.id).catch(() => null);
           if (refreshed) {
@@ -529,6 +538,10 @@ export default function World() {
   </div>
   );
 }
+
+
+
+
 
 
 
